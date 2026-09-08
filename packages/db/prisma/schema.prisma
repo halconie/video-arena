@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -22,11 +21,12 @@ model Video {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  prompt      String
-  model       String
-  duration    Int
-  resolution  String
-  aspectRatio String
+  prompt        String
+  model         String
+  duration      Int
+  resolution    String
+  aspectRatio   String
+  generateAudio Boolean @default(true)
 
   startFrameUrl      String?
   endFrameUrl        String?

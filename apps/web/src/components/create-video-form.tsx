@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -34,6 +35,7 @@ export function CreateVideoForm({
   const [duration, setDuration] = useState(5);
   const [resolution, setResolution] = useState(RESOLUTIONS[0]);
   const [aspectRatio, setAspectRatio] = useState(ASPECT_RATIOS[0]);
+  const [generateAudio, setGenerateAudio] = useState(true);
   const [startFrame, setStartFrame] = useState<File | undefined>();
   const [endFrame, setEndFrame] = useState<File | undefined>();
   const [referenceFrames, setReferenceFrames] = useState<File[]>([]);
@@ -74,6 +76,7 @@ export function CreateVideoForm({
         duration,
         resolution,
         aspectRatio,
+        generateAudio,
         startFrame,
         endFrame,
         referenceFrames,
@@ -165,6 +168,15 @@ export function CreateVideoForm({
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Switch
+          id="generate-audio"
+          checked={generateAudio}
+          onCheckedChange={setGenerateAudio}
+        />
+        <Label htmlFor="generate-audio">Generate audio</Label>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

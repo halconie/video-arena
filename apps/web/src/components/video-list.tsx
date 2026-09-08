@@ -43,7 +43,7 @@ export function VideoList({ videos }: { videos: Video[] }) {
           </CardContent>
           <CardFooter className="text-xs text-muted-foreground">
             {video.model} &middot; {video.duration}s &middot; {video.resolution} &middot;{" "}
-            {video.aspectRatio}
+            {video.aspectRatio} &middot; {video.generateAudio ? "audio" : "no audio"}
           </CardFooter>
         </Card>
       ))}

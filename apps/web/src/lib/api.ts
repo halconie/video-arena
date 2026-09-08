@@ -13,6 +13,7 @@ export type Video = {
   startFrameUrl: string | null;
   endFrameUrl: string | null;
   referenceFrameUrls: string[];
+  generateAudio: boolean;
   status: VideoStatus;
   outputUrl: string | null;
   errorMessage: string | null;
@@ -26,6 +27,7 @@ export type CreateVideoInput = {
   duration: number;
   resolution: string;
   aspectRatio: string;
+  generateAudio: boolean;
   startFrame?: File;
   endFrame?: File;
   referenceFrames?: File[];
@@ -38,7 +40,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `Request failed: ${res.status}`);
+    // A failed video generation (502) responds with the Video row itself,
+    // whose failure reason lives in `errorMessage`, not `error`.
+    throw new Error(
+      body.error ?? body.errorMessage ?? `Request failed: ${res.status}`,
+    );
   }
   return res.json() as Promise<T>;
 }
@@ -62,6 +68,7 @@ export function createVideo(input: CreateVideoInput): Promise<Video> {
   form.set("duration", String(input.duration));
   form.set("resolution", input.resolution);
   form.set("aspectRatio", input.aspectRatio);
+  form.set("generateAudio", String(input.generateAudio));
   if (input.startFrame) form.set("startFrame", input.startFrame);
   if (input.endFrame) form.set("endFrame", input.endFrame);
   for (const file of input.referenceFrames ?? []) {

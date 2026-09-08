@@ -18,16 +18,33 @@ type InputReference = {
   image_url: { url: string };
 };
 
+/** Raw image bytes for a start/end/reference frame. */
+export type FrameFile = { buffer: Buffer; contentType: string };
+
 export type CreateVideoParams = {
   model: string;
   prompt: string;
   duration: number;
   resolution: string;
   aspectRatio: string;
-  startFrameUrl?: string;
-  endFrameUrl?: string;
-  referenceFrameUrls?: string[];
+  startFrame?: FrameFile;
+  endFrame?: FrameFile;
+  referenceFrames?: FrameFile[];
+  /** Whether the generated video should include audio. Not every model
+   * supports this (see a model's `generate_audio` field from
+   * `listVideoModels()`) - OpenRouter ignores it for models that don't. */
+  generateAudio?: boolean;
 };
+
+// OpenRouter rejects localhost/private image URLs outright ("Localhost
+// URLs are not allowed"), which is exactly what MinIO resolves to in local
+// dev (and possibly in some deployments too). Sending frames as inline
+// base64 data URIs sidesteps needing MinIO to be publicly reachable just
+// to hand images to OpenRouter - we still upload them to MinIO separately
+// for our own storage/display purposes.
+function toDataUri(file: FrameFile): string {
+  return `data:${file.contentType};base64,${file.buffer.toString("base64")}`;
+}
 
 type CreateVideoJobResponse = {
   id: string;
@@ -75,24 +92,24 @@ async function createVideoJob(
   params: CreateVideoParams,
 ): Promise<CreateVideoJobResponse> {
   const frameImages: FrameImage[] = [];
-  if (params.startFrameUrl) {
+  if (params.startFrame) {
     frameImages.push({
       type: "image_url",
-      image_url: { url: params.startFrameUrl },
+      image_url: { url: toDataUri(params.startFrame) },
       frame_type: "first_frame",
     });
   }
-  if (params.endFrameUrl) {
+  if (params.endFrame) {
     frameImages.push({
       type: "image_url",
-      image_url: { url: params.endFrameUrl },
+      image_url: { url: toDataUri(params.endFrame) },
       frame_type: "last_frame",
     });
   }
 
   const inputReferences: InputReference[] = (
-    params.referenceFrameUrls ?? []
-  ).map((url) => ({ type: "image_url", image_url: { url } }));
+    params.referenceFrames ?? []
+  ).map((file) => ({ type: "image_url", image_url: { url: toDataUri(file) } }));
 
   const res = await fetch(`${OPENROUTER_BASE_URL}/videos`, {
     method: "POST",
@@ -103,6 +120,7 @@ async function createVideoJob(
       duration: params.duration,
       resolution: params.resolution,
       aspect_ratio: params.aspectRatio,
+      generate_audio: params.generateAudio ?? true,
       ...(frameImages.length > 0 ? { frame_images: frameImages } : {}),
       ...(inputReferences.length > 0
         ? { input_references: inputReferences }

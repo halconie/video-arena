@@ -81,6 +81,14 @@ const createVideoSchema = z.object({
   duration: z.coerce.number().int().positive(),
   resolution: z.string().min(1),
   aspectRatio: z.string().min(1),
+  // multipart fields arrive as strings - z.coerce.boolean() would treat
+  // the string "false" as truthy, so handle "true"/"false" explicitly.
+  generateAudio: z
+    .preprocess(
+      (v) => (v === "false" ? false : v === "true" ? true : v),
+      z.boolean(),
+    )
+    .default(true),
 });
 
 const frameFields = upload.fields([
@@ -96,7 +104,8 @@ router.post("/", frameFields, async (req, res) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const { prompt, model, duration, resolution, aspectRatio } = parsed.data;
+  const { prompt, model, duration, resolution, aspectRatio, generateAudio } =
+    parsed.data;
 
   const files = req.files as
     | Record<string, Express.Multer.File[]>
@@ -110,17 +119,25 @@ router.post("/", frameFields, async (req, res) => {
       duration,
       resolution,
       aspectRatio,
+      generateAudio,
       status: "PENDING",
     },
   });
 
+  const startFile = files?.startFrame?.[0];
+  const endFile = files?.endFrame?.[0];
+  const referenceFiles = files?.referenceFrames ?? [];
+
   try {
+    // Uploaded here purely for our own storage/display (the "your videos"
+    // grid shows these). OpenRouter gets the raw bytes directly below,
+    // inline, since it can't fetch back a localhost MinIO URL.
     const [startFrameUrl, endFrameUrl, referenceFrameUrls] =
       await Promise.all([
-        uploadFrame(files?.startFrame?.[0]),
-        uploadFrame(files?.endFrame?.[0]),
-        Promise.all((files?.referenceFrames ?? []).map(uploadFrame)).then(
-          (urls) => urls.filter((u): u is string => Boolean(u)),
+        uploadFrame(startFile),
+        uploadFrame(endFile),
+        Promise.all(referenceFiles.map(uploadFrame)).then((urls) =>
+          urls.filter((u): u is string => Boolean(u)),
         ),
       ]);
 
@@ -140,9 +157,17 @@ router.post("/", frameFields, async (req, res) => {
       duration,
       resolution,
       aspectRatio,
-      startFrameUrl: startFrameUrl ?? undefined,
-      endFrameUrl: endFrameUrl ?? undefined,
-      referenceFrameUrls,
+      generateAudio,
+      startFrame: startFile
+        ? { buffer: startFile.buffer, contentType: startFile.mimetype }
+        : undefined,
+      endFrame: endFile
+        ? { buffer: endFile.buffer, contentType: endFile.mimetype }
+        : undefined,
+      referenceFrames: referenceFiles.map((f) => ({
+        buffer: f.buffer,
+        contentType: f.mimetype,
+      })),
     });
 
     const { buffer, contentType } = await downloadVideo(generatedUrl);
@@ -159,6 +184,7 @@ router.post("/", frameFields, async (req, res) => {
 
     res.status(201).json(completed);
   } catch (err) {
+    console.error(`Video generation failed for ${video.id}:`, err);
     const failed = await prisma.video.update({
       where: { id: video.id },
       data: {
