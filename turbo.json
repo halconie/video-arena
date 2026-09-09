@@ -17,6 +17,8 @@
     "MINIO_ACCESS_KEY",
     "MINIO_SECRET_KEY",
     "MINIO_BUCKET",
+    "FACESWAP_JOBS_DIR",
+    "ADMIN_EMAILS",
     "VITE_BACKEND_URL"
   ],
   "tasks": {

@@ -1,43 +1,12 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
-import multer from "multer";
+import { Router } from "express";
 import { z } from "zod";
-import { fromNodeHeaders } from "better-auth/node";
 import { prisma } from "@repo/db";
-import { auth } from "../lib/auth.js";
-import { uploadObject } from "../lib/minio.js";
+import { requireAuth } from "../middleware/auth.js";
+import { upload } from "../lib/uploads.js";
+import { uploadFile, uploadObject } from "../lib/minio.js";
 import { downloadVideo, generateVideo, listVideoModels } from "../lib/openrouter.js";
 
 const router = Router();
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB per image
-});
-
-/* eslint-disable @typescript-eslint/no-namespace -- this is the standard
-   way to augment Express's Request type. */
-declare global {
-  namespace Express {
-    interface Request {
-      userId?: string;
-    }
-  }
-}
-/* eslint-enable @typescript-eslint/no-namespace */
-
-async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-
-  if (!session) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-
-  req.userId = session.user.id;
-  next();
-}
 
 router.use(requireAuth);
 
@@ -134,9 +103,9 @@ router.post("/", frameFields, async (req, res) => {
     // inline, since it can't fetch back a localhost MinIO URL.
     const [startFrameUrl, endFrameUrl, referenceFrameUrls] =
       await Promise.all([
-        uploadFrame(startFile),
-        uploadFrame(endFile),
-        Promise.all(referenceFiles.map(uploadFrame)).then((urls) =>
+        uploadFile(startFile),
+        uploadFile(endFile),
+        Promise.all(referenceFiles.map(uploadFile)).then((urls) =>
           urls.filter((u): u is string => Boolean(u)),
         ),
       ]);
@@ -195,16 +164,5 @@ router.post("/", frameFields, async (req, res) => {
     res.status(502).json(failed);
   }
 });
-
-async function uploadFrame(
-  file: Express.Multer.File | undefined,
-): Promise<string | undefined> {
-  if (!file) return undefined;
-  return uploadObject({
-    folder: "uploads",
-    body: file.buffer,
-    contentType: file.mimetype,
-  });
-}
 
 export default router;

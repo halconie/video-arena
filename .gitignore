@@ -37,3 +37,6 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Local model-quality reference media (large, not source)
+generated-samples/

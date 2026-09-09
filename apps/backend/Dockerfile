@@ -20,6 +20,11 @@ COPY --from=prepare /app/out/full/ .
 RUN bun run --filter=@repo/db db:generate
 
 FROM base AS runner
+# ffmpeg stitches rendered template blocks together, muxes the template's
+# audio track, and extracts thumbnails - see src/lib/ffmpeg.ts.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app .
 WORKDIR /app/apps/backend

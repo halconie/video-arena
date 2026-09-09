@@ -5,6 +5,10 @@ import { toNodeHandler } from "better-auth/node";
 import { auth } from "./lib/auth.js";
 import { ensureBucket } from "./lib/minio.js";
 import videosRouter from "./routes/videos.js";
+import imagesRouter from "./routes/images.js";
+import faceSwapRouter from "./routes/faceswap.js";
+import avatarsRouter from "./routes/avatars.js";
+import templatesRouter from "./routes/templates.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:5173";
@@ -29,6 +33,10 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/videos", videosRouter);
+app.use("/api/images", imagesRouter);
+app.use("/api/faceswap", faceSwapRouter);
+app.use("/api/avatars", avatarsRouter);
+app.use("/api/templates", templatesRouter);
 
 app.use(
   (
@@ -45,9 +53,17 @@ app.use(
 
 async function main() {
   await ensureBucket();
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`backend listening on http://localhost:${PORT}`);
   });
+
+  // Template renders generate many clips in one synchronous request and can
+  // legitimately run for tens of minutes; the 5-minute default would kill
+  // them mid-flight. Renders are resumable either way (see lib/render.ts),
+  // but there's no reason to force that path in the normal case.
+  server.requestTimeout = 0; // no limit
+  server.headersTimeout = 0;
+  server.timeout = 0;
 }
 
 main().catch((err) => {

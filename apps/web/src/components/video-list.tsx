@@ -1,13 +1,6 @@
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import type { Video, VideoStatus } from "@/lib/api";
-
-const STATUS_VARIANT: Record<VideoStatus, "default" | "secondary" | "destructive"> = {
-  PENDING: "secondary",
-  PROCESSING: "secondary",
-  COMPLETED: "default",
-  FAILED: "destructive",
-};
+import { StatusBadge } from "@/components/status-badge";
+import type { Video } from "@/lib/api";
 
 export function VideoList({ videos }: { videos: Video[] }) {
   if (videos.length === 0) {
@@ -24,7 +17,7 @@ export function VideoList({ videos }: { videos: Video[] }) {
         <Card key={video.id} className="overflow-hidden">
           <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
             <p className="line-clamp-2 text-sm font-medium">{video.prompt}</p>
-            <Badge variant={STATUS_VARIANT[video.status]}>{video.status}</Badge>
+            <StatusBadge status={video.status} />
           </CardHeader>
           <CardContent>
             {video.status === "COMPLETED" && video.outputUrl ? (

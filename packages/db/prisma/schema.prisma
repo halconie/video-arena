@@ -43,21 +43,223 @@ model Video {
   @@map("video")
 }
 
+// Shared by Image/FaceSwap. Kept separate from VideoStatus (rather than
+// reusing it) so Video's migration history/enum stays untouched.
+enum GenerationStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Image {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  prompt      String
+  model       String
+  resolution  String
+  aspectRatio String
+
+  referenceImageUrls String[] @default([])
+
+  status       GenerationStatus @default(PENDING)
+  outputUrl    String?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("image")
+}
+
+model FaceSwap {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  baseImageUrl String
+  faceImageUrl String
+
+  status       GenerationStatus @default(PENDING)
+  outputUrl    String?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("face_swap")
+}
+
+// --- Templates (long-form video) ---------------------------------------
+// No video model produces a coherent 5-10 minute video, so long form is
+// assembled from many short generated clips: an admin lays VideoBlocks on a
+// timeline over one audio track, and a render generates + stitches them.
+
+enum TemplateStatus {
+  DRAFT
+  EXPORTED
+}
+
+/// A user's face, used as the source for face swaps in template renders.
+/// "Avatar" here is just 1-2 stored reference images - there's no training
+/// step (see spec/05 decisions).
+model Avatar {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  imageUrls String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("avatar")
+}
+
+model Template {
+  id          String @id @default(cuid())
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+
+  /// How many distinct avatars this template expects a user to supply (1-2).
+  /// Blocks reference these by `VideoBlock.avatarSlot`.
+  avatarCount Int @default(1)
+
+  audioUrl        String?
+  durationSeconds Int     @default(60)
+
+  status          TemplateStatus @default(DRAFT)
+  previewVideoUrl String?
+  thumbnailUrl    String?
+
+  blocks  VideoBlock[]
+  renders TemplateRender[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdById])
+  @@map("template")
+}
+
+model VideoBlock {
+  id         String   @id @default(cuid())
+  templateId String
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  /// Position on the timeline, in seconds. Duration is end - start.
+  startSeconds Int
+  endSeconds   Int
+
+  prompt      String
+  model       String
+  resolution  String @default("720p")
+  aspectRatio String @default("16:9")
+
+  startFrameUrl      String?
+  endFrameUrl        String?
+  referenceImageUrls String[] @default([])
+
+  /// When set, the chosen avatar's face is swapped onto that frame before
+  /// the frame is handed to the video model.
+  swapStartFrame Boolean @default(false)
+  swapEndFrame   Boolean @default(false)
+  /// Which avatar slot (1-based, <= Template.avatarCount) to swap in.
+  avatarSlot     Int     @default(1)
+
+  renderedBlocks RenderedBlock[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([templateId])
+  @@map("video_block")
+}
+
+/// One attempt at rendering a template - either an admin preview or a user
+/// generating the template with their own avatar(s).
+model TemplateRender {
+  id         String   @id @default(cuid())
+  templateId String
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Avatar ids indexed by slot: avatarIds[0] fills slot 1, etc.
+  avatarIds String[] @default([])
+  /// Admin previews render the template for its author rather than an end user.
+  isPreview Boolean  @default(false)
+
+  status       GenerationStatus @default(PENDING)
+  outputUrl    String?
+  thumbnailUrl String?
+  errorMessage String?
+
+  blocks RenderedBlock[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([templateId])
+  @@index([userId])
+  @@map("template_render")
+}
+
+/// One block's generated clip within a render. This is what makes renders
+/// resumable: a re-POST skips any block that already has a COMPLETED row,
+/// so a dropped connection doesn't re-pay OpenRouter for finished work.
+model RenderedBlock {
+  id       String         @id @default(cuid())
+  renderId String
+  render   TemplateRender @relation(fields: [renderId], references: [id], onDelete: Cascade)
+  blockId  String
+  block    VideoBlock     @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  status       GenerationStatus @default(PENDING)
+  outputUrl    String?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([renderId, blockId])
+  @@index([renderId])
+  @@map("rendered_block")
+}
+
 // --- better-auth core schema -------------------------------------------
 // Generated by `bunx @better-auth/cli generate` from apps/backend/src/lib/auth.ts
 // See https://www.better-auth.com/docs/concepts/database
 
 model User {
-  id            String    @id
+  id            String           @id
   name          String
   email         String
-  emailVerified Boolean   @default(false)
+  emailVerified Boolean          @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  /// "user" | "admin". Declared to better-auth as an additionalField with
+  /// `input: false` so it's server-owned - users can't self-promote by
+  /// passing it to sign-up. Seeded from ADMIN_EMAILS (see lib/auth.ts).
+  role          String           @default("user")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
   sessions      Session[]
   accounts      Account[]
   videos        Video[]
+  images        Image[]
+  faceSwaps     FaceSwap[]
+  avatars       Avatar[]
+  templates     Template[]
+  renders       TemplateRender[]
 
   @@unique([email])
   @@map("user")

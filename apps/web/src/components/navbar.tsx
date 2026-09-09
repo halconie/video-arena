@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Avatar,
@@ -29,12 +30,13 @@ export function Navbar() {
             <Link to="/" className="font-semibold tracking-tight">
               Video Arena
             </Link>
-            <Link
-              to="/"
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Video
-            </Link>
+            <NavTab to="/">Video</NavTab>
+            <NavTab to="/image">Image</NavTab>
+            <NavTab to="/face-swap">Face Swap</NavTab>
+            <NavTab to="/user/avatar">Avatar</NavTab>
+            <NavTab to="/user/templates">Templates</NavTab>
+            {(session?.user as { role?: string } | undefined)?.role ===
+              "admin" && <NavTab to="/admin/template/create">Admin</NavTab>}
           </nav>
 
           <div>
@@ -74,5 +76,22 @@ export function Navbar() {
 
       <AuthModal open={authOpen} onOpenChange={setAuthOpen} />
     </>
+  );
+}
+
+function NavTab({ to, children }: { to: string; children: React.ReactNode }) {
+  return (
+    <NavLink
+      to={to}
+      end
+      className={({ isActive }) =>
+        cn(
+          "text-sm hover:text-foreground",
+          isActive ? "font-medium text-foreground" : "text-muted-foreground",
+        )
+      }
+    >
+      {children}
+    </NavLink>
   );
 }

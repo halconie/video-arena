@@ -47,6 +47,51 @@ export async function uploadObject(params: {
   return `${PUBLIC_URL}/${BUCKET}/${key}`;
 }
 
+const ENDPOINT = process.env.MINIO_ENDPOINT ?? "http://localhost:9000";
+
+/**
+ * Fetches an object we previously stored.
+ *
+ * Stored URLs are built from MINIO_PUBLIC_URL so the *browser* can load
+ * them - under docker-compose that's `http://localhost:9000`, which does
+ * not resolve from inside the backend container. Rewrite it to
+ * MINIO_ENDPOINT (`http://minio:9000`) before fetching.
+ */
+export async function downloadStoredUrl(
+  url: string,
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const fetchable =
+    PUBLIC_URL && url.startsWith(PUBLIC_URL)
+      ? `${ENDPOINT}${url.slice(PUBLIC_URL.length)}`
+      : url;
+
+  const res = await fetch(fetchable);
+  if (!res.ok) {
+    throw new Error(
+      `Failed to download ${url}: ${res.status} ${res.statusText}`,
+    );
+  }
+  const arrayBuffer = await res.arrayBuffer();
+  return {
+    buffer: Buffer.from(arrayBuffer),
+    contentType: res.headers.get("content-type") ?? "application/octet-stream",
+  };
+}
+
+/** Uploads a multer-parsed file to the "uploads" folder; used for anything
+ * a user attaches to a generation request (frames, reference images,
+ * face-swap inputs) so it's visible later in that resource's history. */
+export async function uploadFile(
+  file: Express.Multer.File | undefined,
+): Promise<string | undefined> {
+  if (!file) return undefined;
+  return uploadObject({
+    folder: "uploads",
+    body: file.buffer,
+    contentType: file.mimetype,
+  });
+}
+
 // Creates the bucket (and makes it publicly readable, since generated
 // video/image URLs are served straight to the browser) if it doesn't
 // already exist. Safe to call on every server boot.

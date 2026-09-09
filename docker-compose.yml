@@ -57,13 +57,17 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-video-arena}
+      FACESWAP_JOBS_DIR: /jobs
     ports:
       - "4000:4000"
+    volumes:
+      - faceswap_jobs:/jobs
 
   web:
     build:
@@ -77,20 +81,56 @@ services:
     ports:
       - "5173:80"
 
-  # Self-hosted face swap. Not wired into the app yet - included so the
-  # local stack has it ready to go. Opt-in via a compose profile so it
-  # doesn't download/start with the rest of the stack:
-  #   docker compose --profile facefusion up
+  # Self-hosted face swap, used by POST /api/faceswap. FaceFusion has no
+  # REST API, so the backend and this container talk over the shared
+  # `faceswap_jobs` volume instead: the backend drops source/target images
+  # + a `pending` marker into a job folder, this loop picks it up and runs
+  # FaceFusion's headless CLI, and the backend polls for the result. See
+  # apps/backend/src/lib/faceswap.ts for the other end of this.
+  #
+  # Opt-in via a compose profile so `docker compose up` doesn't pull this
+  # (fairly large) image/model weights for people who don't need face
+  # swap:
+  #   docker compose --profile facefusion up -d facefusion
   facefusion:
     image: facefusion/facefusion:3.8.2-cpu
     profiles: ["facefusion"]
     restart: unless-stopped
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -u
+        mkdir -p /jobs
+        echo "faceswap watcher: watching /jobs"
+        while true; do
+          for pending in /jobs/*/pending; do
+            [ -e "$$pending" ] || continue
+            dir=$$(dirname "$$pending")
+            rm -f "$$pending"
+            echo "faceswap watcher: processing $$dir"
+            source_file=$$(ls "$$dir"/source.* 2>/dev/null | head -n1)
+            target_file=$$(ls "$$dir"/target.* 2>/dev/null | head -n1)
+            if [ -z "$$source_file" ] || [ -z "$$target_file" ]; then
+              echo "missing source/target file" > "$$dir/log.txt"
+              echo failed > "$$dir/status"
+              continue
+            fi
+            if python3 facefusion.py headless-run -s "$$source_file" -t "$$target_file" -o "$$dir/output.png" --processors face_swapper > "$$dir/log.txt" 2>&1; then
+              echo done > "$$dir/status"
+            else
+              echo failed > "$$dir/status"
+            fi
+          done
+          sleep 2
+        done
     ports:
       - "7860:7860"
     volumes:
       - facefusion_models:/facefusion/.assets
+      - faceswap_jobs:/jobs
 
 volumes:
   postgres_data:
   minio_data:
   facefusion_models:
+  faceswap_jobs:

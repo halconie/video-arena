@@ -1,9 +1,11 @@
-// Thin client for OpenRouter's video generation API.
+// Thin client for OpenRouter's video and image generation APIs.
 // https://openrouter.ai/docs/guides/overview/multimodal/video-generation
+// https://openrouter.ai/docs/guides/overview/multimodal/image-generation
 //
-// The API itself is async (submit a job, poll until done) - this module
+// The video API is async (submit a job, poll until done) - this module
 // hides that behind a single function so the rest of the backend can treat
-// video generation as one synchronous call, per the spec.
+// video generation as one synchronous call, per the spec. Image generation
+// is synchronous already (the response contains the finished image).
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
@@ -202,5 +204,77 @@ export async function downloadVideo(
   return {
     buffer: Buffer.from(arrayBuffer),
     contentType: res.headers.get("content-type") ?? "video/mp4",
+  };
+}
+
+// --- Image generation ---------------------------------------------------
+
+export type CreateImageParams = {
+  model: string;
+  prompt: string;
+  resolution: string;
+  aspectRatio: string;
+  referenceImages?: FrameFile[];
+};
+
+type CreateImageResponse = {
+  data: { b64_json: string; media_type: string }[];
+};
+
+/** Lists image generation models available through OpenRouter, with their supported params. */
+export async function listImageModels(): Promise<unknown> {
+  const res = await fetch(`${OPENROUTER_BASE_URL}/images/models`, {
+    headers: headers(),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `OpenRouter model list failed: ${res.status} ${res.statusText} - ${body}`,
+    );
+  }
+  return res.json();
+}
+
+/**
+ * Generates an image via OpenRouter. Unlike video, this is a single
+ * synchronous call - the response contains the finished image already.
+ */
+export async function generateImage(
+  params: CreateImageParams,
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const inputReferences: InputReference[] = (
+    params.referenceImages ?? []
+  ).map((file) => ({ type: "image_url", image_url: { url: toDataUri(file) } }));
+
+  const res = await fetch(`${OPENROUTER_BASE_URL}/images`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({
+      model: params.model,
+      prompt: params.prompt,
+      resolution: params.resolution,
+      aspect_ratio: params.aspectRatio,
+      ...(inputReferences.length > 0
+        ? { input_references: inputReferences }
+        : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `OpenRouter image generation failed: ${res.status} ${res.statusText} - ${body}`,
+    );
+  }
+
+  const json = (await res.json()) as CreateImageResponse;
+  const image = json.data?.[0];
+  if (!image) {
+    throw new Error("OpenRouter returned no image data");
+  }
+
+  return {
+    buffer: Buffer.from(image.b64_json, "base64"),
+    contentType: image.media_type,
   };
 }

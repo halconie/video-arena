@@ -2,37 +2,29 @@ import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreateVideoForm } from "@/components/create-video-form";
 import { VideoList } from "@/components/video-list";
-import { AuthForm } from "@/components/auth-form";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { RequireSession } from "@/components/require-session";
 import { useSession } from "@/lib/auth-client";
 import { listVideos, type Video } from "@/lib/api";
 
 export function VideoPage() {
-  const { data: session, isPending } = useSession();
+  return (
+    <RequireSession title="Sign in to generate videos">
+      <VideoWorkspace />
+    </RequireSession>
+  );
+}
+
+function VideoWorkspace() {
+  const { data: session } = useSession();
   const [videos, setVideos] = useState<Video[]>([]);
   const [tab, setTab] = useState("create");
 
   useEffect(() => {
     if (!session) return;
-    listVideos().then(setVideos).catch(() => {});
+    listVideos()
+      .then(setVideos)
+      .catch(() => {});
   }, [session]);
-
-  if (isPending) return null;
-
-  if (!session) {
-    return (
-      <div className="mx-auto flex max-w-sm flex-1 items-center px-4 py-12">
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>Sign in to generate videos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <AuthForm />
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
